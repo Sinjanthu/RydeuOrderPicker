@@ -1,0 +1,25 @@
+{
+  "rydeu": {
+    "baseUrl": "https://supplier.rydeu.com",
+    "dashboard": "/dashboard",
+    "requestsPage": "/dashboard/requests",
+    "selectors": {
+      "requestCard": "[data-testid='request-card']",
+      "alternateCard": ".request-item",
+      "fallback": "[class*='request-card']"
+    }
+  },
+  "discord": {
+    "embedColor": 1957647,
+    "embedFooterText": "Rydeu Order Picker"
+  },
+  "scraper": {
+    "timeout": 30000,
+    "maxRetries": 3,
+    "retryDelay": 5000
+  },
+  "cache": {
+    "maxCachedOrders": 1000,
+    "cookieExpiry": 604800000
+  }
+}

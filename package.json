@@ -1,0 +1,30 @@
+{
+  "name": "rydeu-order-picker",
+  "version": "1.0.0",
+  "description": "Rydeu order scraper with Discord notifications",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "scrape": "node src/scraper.js",
+    "login": "node src/auth.js",
+    "test": "echo \"Tests coming soon\""
+  },
+  "keywords": [
+    "rydeu",
+    "scraper",
+    "discord",
+    "automation"
+  ],
+  "author": "Sinthujan",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.54.0"
+  }
+}

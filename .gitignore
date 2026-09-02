@@ -1,0 +1,37 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Sensitive files
+cookies.json
+storage.json
+auth.json
+state.json
+
+# Node modules
+node_modules/
+yarn.lock
+
+# VS Code
+.vscode/settings.json
+.vscode/launch.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+*.swp
+*.swo
+*~
+.idea/
+
+# Build
+dist/
+build/

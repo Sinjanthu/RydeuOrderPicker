@@ -1,0 +1,122 @@
+name: Rydeu Order Scraper
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: '*/5 * * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Restore cookies
+        id: restore-cookies
+        uses: actions/cache@v3
+        with:
+          path: cookies.json
+          key: rydeu-cookies-${{ github.run_id }}
+          restore-keys: |
+            rydeu-cookies-
+
+      - name: Restore storage
+        id: restore-storage
+        uses: actions/cache@v3
+        with:
+          path: storage.json
+          key: rydeu-storage-${{ github.run_id }}
+          restore-keys: |
+            rydeu-storage-
+
+      - name: Restore state
+        id: restore-state
+        uses: actions/cache@v3
+        with:
+          path: state.json
+          key: rydeu-state
+          restore-keys: |
+            rydeu-state
+
+      # The cache is only ever populated by a previous successful run. The
+      # first run (or any run after the cache is evicted) falls back to a
+      # one-time snapshot taken from a real `npm run login` and stored as
+      # secrets, since CI has no display to log in interactively itself.
+      - name: Seed session from secrets if cache missed
+        if: steps.restore-cookies.outputs.cache-hit != 'true'
+        env:
+          COOKIES_JSON: ${{ secrets.COOKIES_JSON }}
+          STORAGE_JSON: ${{ secrets.STORAGE_JSON }}
+        run: |
+          echo "$COOKIES_JSON" | base64 -d > cookies.json
+          echo "$STORAGE_JSON" | base64 -d > storage.json
+
+      - name: Run scraper
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          HEADLESS: 'true'
+          DEBUG: ${{ secrets.DEBUG || 'false' }}
+        run: npm run scrape
+
+      - name: Save cookies
+        uses: actions/cache@v3
+        with:
+          path: cookies.json
+          key: rydeu-cookies-${{ github.run_id }}
+
+      - name: Save storage
+        uses: actions/cache@v3
+        with:
+          path: storage.json
+          key: rydeu-storage-${{ github.run_id }}
+
+      - name: Save state
+        uses: actions/cache@v3
+        with:
+          path: state.json
+          key: rydeu-state
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: scraper-logs
+          path: |
+            *.log
+            cookies.json
+          retention-days: 1
+
+  notify-on-failure:
+    needs: scrape
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord failure notification
+        run: |
+          curl -X POST ${{ secrets.DISCORD_WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "❌ Rydeu Scraper Failed",
+                "description": "The scheduled scraper failed. Check GitHub Actions for details.",
+                "color": 16711680,
+                "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }]
+            }'
+        if: ${{ secrets.DISCORD_WEBHOOK_URL != '' }}
