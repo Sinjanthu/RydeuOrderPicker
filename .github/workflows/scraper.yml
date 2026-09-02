@@ -18,7 +18,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -29,7 +29,7 @@ jobs:
 
       - name: Restore cookies
         id: restore-cookies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: cookies.json
           key: rydeu-cookies-${{ github.run_id }}
@@ -38,7 +38,7 @@ jobs:
 
       - name: Restore storage
         id: restore-storage
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: storage.json
           key: rydeu-storage-${{ github.run_id }}
@@ -47,12 +47,21 @@ jobs:
 
       - name: Restore state
         id: restore-state
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: state.json
-          key: rydeu-state
+          key: rydeu-state-${{ github.run_id }}
           restore-keys: |
-            rydeu-state
+            rydeu-state-
+
+      - name: Restore auction state
+        id: restore-auction-state
+        uses: actions/cache@v4
+        with:
+          path: auction-state.json
+          key: rydeu-auction-state-${{ github.run_id }}
+          restore-keys: |
+            rydeu-auction-state-
 
       # The cache is only ever populated by a previous successful run. The
       # first run (or any run after the cache is evicted) falls back to a
@@ -67,34 +76,40 @@ jobs:
           echo "$COOKIES_JSON" | base64 -d > cookies.json
           echo "$STORAGE_JSON" | base64 -d > storage.json
 
-      - name: Run scraper
+      - name: Run scraper + auction check
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           HEADLESS: 'true'
           DEBUG: ${{ secrets.DEBUG || 'false' }}
-        run: npm run scrape
+        run: npm run poll
 
       - name: Save cookies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: cookies.json
           key: rydeu-cookies-${{ github.run_id }}
 
       - name: Save storage
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: storage.json
           key: rydeu-storage-${{ github.run_id }}
 
       - name: Save state
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: state.json
-          key: rydeu-state
+          key: rydeu-state-${{ github.run_id }}
+
+      - name: Save auction state
+        uses: actions/cache@v4
+        with:
+          path: auction-state.json
+          key: rydeu-auction-state-${{ github.run_id }}
 
       - name: Upload artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: scraper-logs
           path: |

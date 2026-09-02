@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { scrapeRydeuOrders } from './scraper.js';
+import { poll } from './poll.js';
 
 // Load environment variables
 dotenv.config();
@@ -12,7 +12,7 @@ console.log('========================\n');
 async function runScraper() {
   try {
     console.log(`[${new Date().toISOString()}] Running scraper...`);
-    await scrapeRydeuOrders();
+    await poll();
     console.log(`[${new Date().toISOString()}] Scraper complete\n`);
   } catch (err) {
     console.error(`[${new Date().toISOString()}] Error:`, err.message);

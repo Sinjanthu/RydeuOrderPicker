@@ -8,6 +8,7 @@ cookies.json
 storage.json
 auth.json
 state.json
+auction-state.json
 
 # Node modules
 node_modules/

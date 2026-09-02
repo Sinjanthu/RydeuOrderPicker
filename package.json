@@ -8,6 +8,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "scrape": "node src/scraper.js",
+    "auction": "node src/auction.js",
+    "poll": "node src/poll.js",
     "login": "node src/auth.js",
     "test": "echo \"Tests coming soon\""
   },

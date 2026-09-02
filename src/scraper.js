@@ -4,46 +4,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { notifyDiscord } from './discord.js';
+import { restoreSession, persistSession } from './session.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const COOKIES_FILE = path.join(__dirname, '..', 'cookies.json');
-const STORAGE_FILE = path.join(__dirname, '..', 'storage.json');
 const STATE_FILE = path.join(__dirname, '..', 'state.json');
-
-// Load persistent cookies
-function loadCookies() {
-  try {
-    if (fs.existsSync(COOKIES_FILE)) {
-      return JSON.parse(fs.readFileSync(COOKIES_FILE, 'utf8'));
-    }
-  } catch (err) {
-    console.error('Failed to load cookies:', err.message);
-  }
-  return [];
-}
-
-// Load persisted localStorage/sessionStorage (this SPA keeps its real auth
-// state here — cookies alone aren't enough to be considered logged in).
-function loadStorage() {
-  try {
-    if (fs.existsSync(STORAGE_FILE)) {
-      return JSON.parse(fs.readFileSync(STORAGE_FILE, 'utf8'));
-    }
-  } catch (err) {
-    console.error('Failed to load storage:', err.message);
-  }
-  return { localStorage: {}, sessionStorage: {} };
-}
-
-// Save cookies for next run
-function saveCookies(cookies) {
-  try {
-    fs.writeFileSync(COOKIES_FILE, JSON.stringify(cookies, null, 2));
-    console.log('✓ Cookies saved');
-  } catch (err) {
-    console.error('Failed to save cookies:', err.message);
-  }
-}
 
 // Load seen orders state
 function loadState() {
@@ -76,28 +40,11 @@ export async function scrapeRydeuOrders() {
   const page = await context.newPage();
 
   const state = loadState();
-  let cookies = loadCookies();
-  const storage = loadStorage();
 
   try {
     console.log('🚀 Starting Rydeu order scraper...');
-
-    // Add cookies to context if they exist
-    if (cookies.length > 0) {
-      await context.addCookies(cookies);
-      console.log('📦 Loaded persisted cookies');
-    }
-
-    // Seed localStorage/sessionStorage before any of the app's own scripts
-    // run, so the SPA sees itself as already authenticated on first paint.
-    await context.addInitScript((data) => {
-      for (const [key, value] of Object.entries(data.localStorage || {})) {
-        try { window.localStorage.setItem(key, value); } catch (e) { /* ignore */ }
-      }
-      for (const [key, value] of Object.entries(data.sessionStorage || {})) {
-        try { window.sessionStorage.setItem(key, value); } catch (e) { /* ignore */ }
-      }
-    }, storage);
+    await restoreSession(context);
+    console.log('📦 Loaded persisted session');
 
     // Navigate to Rydeu supplier dashboard
     console.log('🌐 Navigating to Rydeu dashboard...');
@@ -178,15 +125,8 @@ export async function scrapeRydeuOrders() {
     state.lastScrape = new Date().toISOString();
     saveState(state);
 
-    // Save cookies + storage for next run (the SPA may rotate its token)
-    cookies = await context.cookies();
-    saveCookies(cookies);
-
-    const freshStorage = await page.evaluate(() => ({
-      localStorage: { ...window.localStorage },
-      sessionStorage: { ...window.sessionStorage },
-    }));
-    fs.writeFileSync(STORAGE_FILE, JSON.stringify(freshStorage, null, 2));
+    // Save session for next run (the SPA may rotate its token)
+    await persistSession(context, page);
 
     console.log('✓ Scrape complete');
   } catch (err) {

@@ -1,11 +1,6 @@
 import { chromium } from 'playwright';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const COOKIES_FILE = path.join(__dirname, '..', 'cookies.json');
-const STORAGE_FILE = path.join(__dirname, '..', 'storage.json');
+import { pathToFileURL } from 'url';
+import { persistSession } from './session.js';
 
 export async function loginRydeu() {
   console.log('\n🔐 Rydeu Login Helper');
@@ -36,21 +31,8 @@ export async function loginRydeu() {
     // Give the app a moment to finish writing cookies/localStorage.
     await page.waitForTimeout(2000);
 
-    // Extract and save cookies
-    const cookies = await context.cookies();
-    fs.writeFileSync(COOKIES_FILE, JSON.stringify(cookies, null, 2));
-    console.log(`✓ Cookies saved to ${COOKIES_FILE} (${cookies.length} cookies)`);
-
-    // Extract and save localStorage/sessionStorage — many SPAs keep the real
-    // auth token here rather than relying solely on cookies for client-side routing.
-    const storage = await page.evaluate(() => ({
-      localStorage: { ...window.localStorage },
-      sessionStorage: { ...window.sessionStorage },
-    }));
-    fs.writeFileSync(STORAGE_FILE, JSON.stringify(storage, null, 2));
-    console.log(`✓ Storage saved to ${STORAGE_FILE}`);
-    console.log(`  localStorage keys: ${Object.keys(storage.localStorage).join(', ') || '(none)'}`);
-    console.log(`  sessionStorage keys: ${Object.keys(storage.sessionStorage).join(', ') || '(none)'}`);
+    await persistSession(context, page);
+    console.log('✓ Session saved (cookies.json + storage.json)');
 
     console.log('\n✅ Authentication complete!');
     console.log('You can now run: npm run scrape\n');
