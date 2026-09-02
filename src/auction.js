@@ -73,6 +73,7 @@ export async function checkAuctions() {
     const hasRows = await page.locator('table#table tbody tr').count().catch(() => 0);
     if (hasRows === 0) {
       console.log('📭 No new auctions');
+      saveState(state);
       await persistSession(context, page);
       return;
     }
