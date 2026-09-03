@@ -1,10 +1,12 @@
 name: Rydeu Order Scraper
 
 on:
-  schedule:
-    # Run every 5 minutes
-    - cron: '*/5 * * * *'
-  # Allow manual trigger
+  # GitHub's own `schedule:` trigger used to be here (*/5 * * * *) but is
+  # documented as best-effort and was observed in practice skipping runs for
+  # 1.7-5 hours at a stretch under load - useless for a competitive order
+  # scraper. workflow_dispatch (the manual "Run workflow" button) is now
+  # driven by an external, actually reliable timer instead - see README.md's
+  # deployment section for the cron-job.org setup (same fix fleet-scraper uses).
   workflow_dispatch:
 
 jobs:

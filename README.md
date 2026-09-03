@@ -199,10 +199,31 @@ Footer: Rydeu Order Picker
 ## 🚀 Deployment
 
 ### GitHub Actions (Free, Recommended)
-1. Push to GitHub
+1. Push to GitHub (repo must be **public** for unlimited free Actions
+   minutes — every 5 minutes adds up fast on the private-repo 2,000 min/month
+   quota. Secrets stay encrypted in GitHub's Secrets store either way, never
+   in code, so this is safe.)
 2. Actions tab → Enable workflows
 3. Add `DISCORD_WEBHOOK_URL` secret
-4. Runs automatically every 5 minutes
+4. The workflow only listens for `workflow_dispatch` (manual trigger) —
+   GitHub's own `schedule:` trigger used to be here, but is documented as
+   best-effort and was observed skipping runs for 1.7-5 hours at a stretch
+   under load, which defeats a scraper competing for time-sensitive orders.
+   An external, actually-reliable timer drives it instead:
+   1. Create a fine-grained PAT scoped to just this repo's Actions:
+      [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)
+      → repository access "Only select repositories" → `RydeuOrderPicker` →
+      Permissions → Repository permissions → **Actions: Read and write**.
+   2. Sign up free at [cron-job.org](https://cron-job.org) and create a cronjob:
+      - URL: `https://api.github.com/repos/Sinjanthu/RydeuOrderPicker/actions/workflows/scraper.yml/dispatches`
+      - Method: `POST`
+      - Headers: `Authorization: Bearer <token from step 1>`,
+        `Accept: application/vnd.github+json`,
+        `X-GitHub-Api-Version: 2022-11-28`
+      - Body: `{"ref":"main"}`
+      - Schedule: every 5 minutes
+   3. Confirm: `gh run list --repo Sinjanthu/RydeuOrderPicker` should show
+      runs genuinely ~5 minutes apart, not hours.
 
 ### VPS/Local Server
 ```bash
