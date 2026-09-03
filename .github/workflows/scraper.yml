@@ -9,6 +9,16 @@ on:
   # deployment section for the cron-job.org setup (same fix fleet-scraper uses).
   workflow_dispatch:
 
+# A run typically takes 1-2 minutes, but the cron-job.org timer above can
+# fire as often as every 1 minute - without this, overlapping runs would
+# execute in parallel: both read the same "already notified" cache before
+# either saves its update, risking a duplicate Discord ping for the same
+# order, plus wasted double-scraping. cancel-in-progress: false queues the
+# newer trigger instead of running alongside (or killing) the one in flight.
+concurrency:
+  group: rydeu-scraper
+  cancel-in-progress: false
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
