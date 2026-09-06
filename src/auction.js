@@ -37,12 +37,13 @@ function isNightPickup(transferDate) {
   return hour >= 23 || hour < 5;
 }
 
-// NOTE: the Auction Board is empty at the time this was written, so this
-// reuses the same `table#table tbody tr` layout confirmed on the Requests
-// page (both pages share the same "booking-requests" container classes,
-// strongly suggesting the same table component). Watch the first real
-// auction closely to confirm the "Accept" button matches before trusting
-// this fully unattended.
+// The `table#table tbody tr` row layout is confirmed correct against a real
+// auction (id/dates/locations all extracted correctly on 2026-09-06). The
+// first live run failed to click `button:has-text("Accept")` though — the
+// row action likely isn't a real <button> tag (this codebase mixes real
+// <button>s with Fomantic-UI <div class="ui button">s across components) —
+// so this matches by text regardless of tag instead. Still unconfirmed
+// against a successful accept; watch the next live auction closely.
 export async function checkAuctions() {
   const browser = await chromium.launch({
     headless: process.env.HEADLESS !== 'false',
@@ -106,17 +107,26 @@ export async function checkAuctions() {
       console.log(`🆕 New auction: ${auction.id} — ${auction.pickupLocation} → ${auction.dropLocation}`);
 
       const row = page.locator('table#table tbody tr').nth(i);
-      const acceptButton = row.locator('button:has-text("Accept")');
+      // Match by text regardless of tag: this UI mixes real <button> elements
+      // with Fomantic-UI <div class="ui button"> ones for different
+      // components, and a real auction already proved a plain
+      // `button:has-text("Accept")` doesn't match here (extraction from the
+      // row succeeded — text-based matching does not depend on the tag).
+      const acceptButton = row.locator(':text-is("Accept")');
 
       try {
-        await acceptButton.click({ timeout: 10000 });
+        // Short timeout: this is a race against other suppliers for the same
+        // booking, so fail fast and hand it to a human rather than burn the
+        // window retrying a selector that isn't going to start matching.
+        await acceptButton.click({ timeout: 3000 });
         await page.waitForTimeout(1500); // let the accept action settle
         console.log(`✓ Accepted ${auction.id}`);
 
         await notifyAuctionAccepted(auction, isNightPickup(auction.transferDate));
       } catch (err) {
         console.error(`❌ Failed to accept ${auction.id}:`, err.message);
-        await notifyAuctionFailed(auction, err.message);
+        const rowHtml = await row.evaluate((el) => el.outerHTML).catch(() => '(could not read row HTML)');
+        await notifyAuctionFailed(auction, `${err.message}\n\nRow HTML:\n${rowHtml}`);
         // Don't mark as seen — retry next run.
         continue;
       }
