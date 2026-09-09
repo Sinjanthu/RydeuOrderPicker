@@ -36,10 +36,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # apt's index for Google's Chrome repo occasionally serves a stale/
-      # mismatched Packages.gz off a CDN edge (a "Hash Sum mismatch"),
-      # unrelated to this repo - it clears up within minutes. Retry a few
-      # times instead of failing the whole run over a transient mirror glitch.
+      # ubuntu-latest ships with Google Chrome preinstalled, which registers
+      # dl.google.com/linux/chrome-stable as an apt source. We only need
+      # Chromium (installed by Playwright itself, not from this repo), so
+      # drop it - its mirror has been seen serving a stale/mismatched
+      # Packages.gz ("Hash Sum mismatch"), which otherwise fails apt-get
+      # update for everything, including packages we do need.
+      - name: Remove unused Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+
+      # Retry too, as a safety net against other transient mirror issues.
       - name: Install Playwright browsers
         run: |
           for i in 1 2 3; do
