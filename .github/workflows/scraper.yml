@@ -36,8 +36,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # apt's index for Google's Chrome repo occasionally serves a stale/
+      # mismatched Packages.gz off a CDN edge (a "Hash Sum mismatch"),
+      # unrelated to this repo - it clears up within minutes. Retry a few
+      # times instead of failing the whole run over a transient mirror glitch.
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: |
+          for i in 1 2 3; do
+            npx playwright install --with-deps chromium && exit 0
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          exit 1
 
       - name: Restore cookies
         id: restore-cookies
