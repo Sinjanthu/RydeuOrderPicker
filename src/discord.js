@@ -77,3 +77,47 @@ export async function notifyAuctionFailed(auction, reason) {
   });
   console.log(`✓ Discord failure notification sent for auction ${auction.id}`);
 }
+
+// Used when we've reached a screen we've never verified (e.g. a details/
+// accept flow requiring a vehicle pick) — rather than guess-click through
+// something that could commit to a real booking, send a screenshot so a
+// human can act on it directly, image attached so it's visible immediately
+// on mobile without opening a separate log.
+export async function notifyAuctionNeedsManualStep(auction, screenshotBuffer, isNight) {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn('⚠️  DISCORD_WEBHOOK_URL not set');
+    return;
+  }
+
+  const embed = {
+    title: isNight
+      ? '🌙📸 Night Auction (23:00–05:00) — Manual Accept Needed'
+      : '📸 Auction Needs Manual Step — Unverified Screen',
+    description: `${auction.pickupLocation || '?'} → ${auction.dropLocation || '?'}`,
+    fields: [
+      { name: 'Request ID', value: auction.id || 'N/A', inline: true },
+      { name: 'Transfer Date', value: auction.transferDate || 'N/A', inline: true },
+      { name: 'Note', value: 'Opened "View Details" — the accept + vehicle-select flow past this point is unverified, so this needs a manual tap in the app.', inline: false },
+    ],
+    color: isNight ? 0x8a2be2 : 0xf39c12, // purple for night, amber otherwise
+    timestamp: new Date().toISOString(),
+    footer: { text: 'Rydeu Order Picker', icon_url: 'https://rydeu.com/favicon.ico' },
+    image: { url: 'attachment://screenshot.png' },
+  };
+
+  try {
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({ embeds: [embed], username: 'Rydeu Order Bot' }));
+    form.append('files[0]', new Blob([screenshotBuffer], { type: 'image/png' }), 'screenshot.png');
+
+    const res = await fetch(webhookUrl, { method: 'POST', body: form });
+    if (!res.ok) {
+      console.error('Discord screenshot notification failed:', res.status, await res.text());
+    } else {
+      console.log(`✓ Discord screenshot notification sent for auction ${auction.id}`);
+    }
+  } catch (err) {
+    console.error('Discord screenshot notification failed:', err.message);
+  }
+}
