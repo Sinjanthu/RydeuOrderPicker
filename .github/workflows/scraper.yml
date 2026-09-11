@@ -36,17 +36,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ubuntu-latest ships with Google Chrome preinstalled, which registers
-      # dl.google.com/linux/chrome-stable as an apt source. We only need
-      # Chromium (installed by Playwright itself, not from this repo), so
-      # drop it - its mirror has been seen serving a stale/mismatched
-      # Packages.gz ("Hash Sum mismatch"), which otherwise fails apt-get
-      # update for everything, including packages we do need.
-      - name: Remove unused Google Chrome apt source
+      # ubuntu-latest preinstalls Google Chrome and various Microsoft
+      # packages, which register dl.google.com/linux/chrome-stable and
+      # packages.microsoft.com as apt sources. We need neither - Chromium
+      # comes from Playwright itself - and both have independently been seen
+      # breaking apt-get update for everything (a stale "Hash Sum mismatch"
+      # from Google's mirror, a "403 Forbidden / no longer signed" from
+      # Microsoft's), so drop them before installing.
+      - name: Remove unused apt sources (Chrome, Microsoft)
         run: |
-          sudo grep -rl "dl.google.com/linux/chrome" /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
-          echo "Remaining chrome apt sources (should be empty):"
-          sudo grep -rl "dl.google.com/linux/chrome" /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null || echo "(none)"
+          sudo grep -rl "dl.google.com/linux/chrome\|packages.microsoft.com" /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
+          echo "Remaining sources (should be empty):"
+          sudo grep -rl "dl.google.com/linux/chrome\|packages.microsoft.com" /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null || echo "(none)"
 
       # Retry too, as a safety net against other transient mirror issues.
       - name: Install Playwright browsers
