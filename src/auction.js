@@ -185,6 +185,17 @@ export async function checkAuctions() {
       await notifyAuctionFound(auction, isNightPickup(row.startDateTime, row.timezone));
       foundNew = true;
 
+      // AUTO_ACCEPT scaffolding: intentionally does nothing yet. Two
+      // things are still missing before this can do anything real -
+      // (1) the accept API endpoint (never captured - board's been empty
+      // every check so far, see notes in mapRow above) and (2) a rules
+      // engine to decide which auctions are worth accepting (price,
+      // distance, time-of-day, etc - "we will implement rules later").
+      // Once both exist, this is where a rule check + accept call goes.
+      if (process.env.AUTO_ACCEPT === 'true') {
+        // TODO: if (auctionMatchesRules(auction)) await acceptAuction(row);
+      }
+
       // Mark as seen either way so this doesn't re-notify every run - the
       // item naturally drops off the board once anyone (you or a competing
       // supplier) accepts it, so a single nudge is enough.
