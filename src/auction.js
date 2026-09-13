@@ -6,6 +6,10 @@ import axios from 'axios';
 import { getValidToken } from './apiAuth.js';
 import { notifyAuctionFound } from './discord.js';
 
+// Recording is opt-in and local-only (see recordAuctionBoard below) -
+// Playwright is a lazy/dynamic import so a plain `npm run poll` (CI, no
+// browser installed) never touches it unless RECORD_ON_AUCTION is set.
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, '..', 'auction-state.json');
 
@@ -91,6 +95,42 @@ function mapRow(row) {
   };
 }
 
+// Local-only debug aid: opens a real headed/headless browser on the
+// auction board and records ~30s of video, so a genuinely new auction can
+// be *seen* (what it looks like on the actual dashboard) alongside the API
+// notification. Deliberately does NOT click anything - same reasoning as
+// always: an accept flow is a real, hard-to-reverse booking commitment, not
+// something to guess-click through. Never wired into the CI workflow (see
+// scraper.yml) - only runs when RECORD_ON_AUCTION=true is set locally,
+// since it needs Playwright's browser installed, which is exactly the
+// dependency the API migration removed from the automated path.
+async function recordAuctionBoard() {
+  try {
+    const { chromium } = await import('playwright');
+    const { restoreSession } = await import('./session.js');
+
+    console.log('🎥 Recording auction board for 30s...');
+    const dir = path.join(__dirname, '..', 'recordings');
+    const browser = await chromium.launch({ headless: process.env.HEADLESS === 'true' });
+    const context = await browser.newContext({ recordVideo: { dir } });
+    const page = await context.newPage();
+    await restoreSession(context);
+
+    await page.goto('https://supplier.rydeu.com/dashboard/auction', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(30_000);
+
+    await context.close(); // finalizes the video file
+    const videoPath = await page.video()?.path();
+    await browser.close();
+
+    console.log(`🎥 Recording saved: ${videoPath}`);
+    return videoPath;
+  } catch (err) {
+    console.error('Recording failed (non-fatal):', err.message);
+    return null;
+  }
+}
+
 // Reads the live auction board straight from the Rydeu API (reverse-
 // engineered - see src/apiAuth.js) instead of scraping the web dashboard
 // with a browser. No browser dependency left for this check at all, which
@@ -128,6 +168,8 @@ export async function checkAuctions() {
     const rows = res.data?.data?.rows || [];
     console.log(`📋 Found ${rows.length} auction(s)`);
 
+    let foundNew = false;
+
     for (const row of rows) {
       // First confirmed row ever - shape is still unverified, so log it
       // raw for a sanity check until mapRow's field guesses are confirmed.
@@ -141,6 +183,7 @@ export async function checkAuctions() {
       console.log(`🆕 New auction: ${auction.id} — ${auction.pickupLocation} → ${auction.dropLocation}`);
 
       await notifyAuctionFound(auction, isNightPickup(row.startDateTime, row.timezone));
+      foundNew = true;
 
       // Mark as seen either way so this doesn't re-notify every run - the
       // item naturally drops off the board once anyone (you or a competing
@@ -152,6 +195,12 @@ export async function checkAuctions() {
       state.seenAuctions = state.seenAuctions.slice(-1000);
     }
     saveState(state);
+
+    // Once per run, not once per auction - 30s is about the board, not any
+    // one row.
+    if (foundNew && process.env.RECORD_ON_AUCTION === 'true') {
+      await recordAuctionBoard();
+    }
 
     console.log('✓ Auction check complete');
   } catch (err) {

@@ -10,6 +10,7 @@ auth.json
 state.json
 auction-state.json
 api-token.json
+recordings/
 
 # Node modules
 node_modules/
