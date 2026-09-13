@@ -12,6 +12,7 @@
     "poll": "node src/poll.js",
     "login": "node src/auth.js",
     "relogin": "node src/apiAuth.js",
+    "discord-bot": "node src/discordBot.js",
     "test": "echo \"Tests coming soon\""
   },
   "keywords": [
@@ -24,6 +25,7 @@
   "license": "MIT",
   "dependencies": {
     "axios": "^1.6.0",
+    "discord.js": "^14.27.0",
     "dotenv": "^16.3.1",
     "playwright": "^1.40.0"
   },
