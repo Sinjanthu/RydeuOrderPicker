@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
-import { pathToFileURL } from 'url';
 import { isAutoAcceptEnabled, setAutoAccept } from './autoAcceptState.js';
 
 // Persistent process, separate from the poller (index.js/poll.js) -
@@ -57,10 +56,14 @@ export async function startDiscordBot() {
   return client;
 }
 
-// Run if called directly
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  startDiscordBot().catch((err) => {
-    console.error('❌ Discord bot failed to start:', err.message);
-    process.exit(1);
-  });
-}
+// Always the main entry point (unlike the other src/*.js files, this isn't
+// meant to be imported as a library) - no import.meta.url guard needed, and
+// deliberately none used: PM2's fork_mode invokes this script in a way
+// where process.argv[1] doesn't match what `node script.js` sets directly,
+// silently failing that guard and never actually starting the bot (it just
+// sits "online" forever, kept alive by PM2's own IPC channel, producing
+// zero output) - cost real time to track down, see git history.
+startDiscordBot().catch((err) => {
+  console.error('❌ Discord bot failed to start:', err.message);
+  process.exit(1);
+});
