@@ -4,7 +4,8 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import axios from 'axios';
 import { getValidToken } from './apiAuth.js';
-import { notifyAuctionFound } from './discord.js';
+import { notifyAuctionFound, notifyAutoAcceptAttempt } from './discord.js';
+import { isAutoAcceptEnabled } from './autoAcceptState.js';
 
 // Recording is opt-in and local-only (see recordAuctionBoard below) -
 // Playwright is a lazy/dynamic import so a plain `npm run poll` (CI, no
@@ -131,6 +132,80 @@ async function recordAuctionBoard() {
   }
 }
 
+// Local-only, best-effort auto-accept. Genuinely unverified past the "View
+// Details" click (the only step this project has ever confirmed works) -
+// there is no known selector for accept/vehicle-select, so this guesses at
+// common button text. Deliberately defensive about it:
+//   - screenshots BEFORE every blind click, not just after, so there's a
+//     record of what was actually on screen when a guess was made
+//   - explicitly excludes anything that looks like it declines/cancels,
+//     to bias mistakes toward "did nothing" over "did the opposite thing"
+//   - records full video of the attempt and reports outcome + video to
+//     Discord either way, success or failure, so nothing happens silently
+// This is a real, hard-to-reverse action on a live account (accepting a
+// booking is a real commitment) - treat the first real attempt as
+// supervised, not fire-and-forget, and check the recording immediately.
+async function attemptAutoAccept(auction) {
+  const ACCEPT_WORDS = ['Accept', 'Confirm', 'Book Now', 'Submit'];
+  const AVOID_WORDS = ['Decline', 'Reject', 'Cancel', 'Remove'];
+  const acceptSelector = ACCEPT_WORDS.map((w) => `button:has-text("${w}")`).join(', ');
+
+  const { chromium } = await import('playwright');
+  const { restoreSession } = await import('./session.js');
+
+  console.log(`🤖 Attempting to accept auction ${auction.id} (best-effort, unverified past View Details)...`);
+  const dir = path.join(__dirname, '..', 'recordings');
+  const browser = await chromium.launch({ headless: process.env.HEADLESS === 'true' });
+  const context = await browser.newContext({ recordVideo: { dir } });
+  const page = await context.newPage();
+  const screenshots = [];
+
+  try {
+    await restoreSession(context);
+    await page.goto('https://supplier.rydeu.com/dashboard/auction', { waitUntil: 'networkidle' });
+    await page.locator('button:has-text("Got it")').click({ timeout: 2000 }).catch(() => {});
+
+    const row = page.locator('table#table tbody tr').filter({ hasText: auction.id });
+    if ((await row.count().catch(() => 0)) === 0) {
+      throw new Error('Auction row not found on web dashboard (may already be taken)');
+    }
+
+    // Verified step - same click checkAuctions' predecessor always used.
+    await row.locator(':text-is("View Details")').click({ timeout: 3000 });
+    await page.waitForTimeout(2000);
+    screenshots.push(await page.screenshot({ fullPage: true }));
+
+    // Unverified from here - best-effort only.
+    for (let step = 0; step < 3; step++) {
+      const candidate = page.locator(acceptSelector).first();
+      if ((await candidate.count().catch(() => 0)) === 0) break;
+
+      const text = (await candidate.textContent().catch(() => '')) || '';
+      if (AVOID_WORDS.some((w) => text.includes(w))) break; // paranoia - shouldn't match acceptSelector anyway
+
+      screenshots.push(await page.screenshot({ fullPage: true })); // before the blind click
+      console.log(`  → clicking "${text.trim()}"`);
+      await candidate.click({ timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(2000);
+    }
+
+    screenshots.push(await page.screenshot({ fullPage: true }));
+    await context.close();
+    const videoPath = await page.video()?.path();
+    await browser.close();
+
+    console.log(`🤖 Auto-accept attempt for ${auction.id} finished (unverified - check the recording).`);
+    return { attempted: true, videoPath, screenshots };
+  } catch (err) {
+    console.error(`Auto-accept attempt for ${auction.id} failed:`, err.message);
+    const failureScreenshot = await page.screenshot({ fullPage: true }).catch(() => null);
+    await context.close().catch(() => {});
+    const videoPath = await page.video()?.path().catch(() => null);
+    await browser.close();
+    return { attempted: false, reason: err.message, videoPath, screenshots: failureScreenshot ? [failureScreenshot] : [] };
+  }
+}
+
 // Reads the live auction board straight from the Rydeu API (reverse-
 // engineered - see src/apiAuth.js) instead of scraping the web dashboard
 // with a browser. No browser dependency left for this check at all, which
@@ -185,15 +260,17 @@ export async function checkAuctions() {
       await notifyAuctionFound(auction, isNightPickup(row.startDateTime, row.timezone));
       foundNew = true;
 
-      // AUTO_ACCEPT scaffolding: intentionally does nothing yet. Two
-      // things are still missing before this can do anything real -
-      // (1) the accept API endpoint (never captured - board's been empty
-      // every check so far, see notes in mapRow above) and (2) a rules
-      // engine to decide which auctions are worth accepting (price,
-      // distance, time-of-day, etc - "we will implement rules later").
-      // Once both exist, this is where a rule check + accept call goes.
-      if (process.env.AUTO_ACCEPT === 'true') {
-        // TODO: if (auctionMatchesRules(auction)) await acceptAuction(row);
+      // Best-effort auto-accept (see attemptAutoAccept above for what "best
+      // effort" means here - unverified past View Details). No rules
+      // engine yet ("we will implement rules later"), so every new auction
+      // is attempted when this is on - it isn't filtering by price/
+      // distance/etc yet. Toggleable at runtime via the Discord
+      // "auto accept rydeu" command (see src/autoAcceptState.js) rather
+      // than only the static .env value, and local-only for the same
+      // reason as RECORD_ON_AUCTION - never wired into the CI workflow.
+      if (isAutoAcceptEnabled()) {
+        const result = await attemptAutoAccept(auction);
+        await notifyAutoAcceptAttempt(auction, result);
       }
 
       // Mark as seen either way so this doesn't re-notify every run - the

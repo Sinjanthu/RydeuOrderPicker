@@ -1,4 +1,5 @@
 import axios from 'axios';
+import fs from 'fs';
 
 async function sendEmbed(embed) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
@@ -101,6 +102,55 @@ export async function notifyAuctionFound(auction, isNight) {
     color: isNight ? 0x8a2be2 : 0xf39c12, // purple for night, amber otherwise
   });
   console.log(`✓ Discord notification sent for auction ${auction.id}`);
+}
+
+// Reports the outcome of a best-effort auto-accept attempt (see
+// attemptAutoAccept in auction.js) - always sent, success or failure, with
+// the full video of what it actually did so it can be checked immediately.
+export async function notifyAutoAcceptAttempt(auction, result) {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn('⚠️  DISCORD_WEBHOOK_URL not set');
+    return;
+  }
+
+  const embed = {
+    title: result.attempted
+      ? '🤖 Auto-Accept Attempted — Verify the Recording'
+      : '🤖❌ Auto-Accept Failed',
+    description: `${auction.pickupLocation || '?'} → ${auction.dropLocation || '?'}`,
+    fields: [
+      { name: 'Request ID', value: auction.id || 'N/A', inline: true },
+      { name: 'Transfer Date', value: auction.transferDate || 'N/A', inline: true },
+      ...(result.reason ? [{ name: 'Reason', value: result.reason.substring(0, 1024), inline: false }] : []),
+      { name: 'Note', value: 'This clicks through an unverified flow (best-effort button-text guessing) - check the attached video/screenshot to confirm what actually happened before assuming it worked.', inline: false },
+    ],
+    color: result.attempted ? 0x2ecc71 : 0xe74c3c,
+    timestamp: new Date().toISOString(),
+    footer: { text: 'Rydeu Order Picker', icon_url: 'https://rydeu.com/favicon.ico' },
+    ...(result.videoPath ? {} : (result.screenshots?.[0] ? { image: { url: 'attachment://screenshot.png' } } : {})),
+  };
+
+  try {
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({ embeds: [embed], username: 'Rydeu Order Bot' }));
+    // Prefer the video if we have one - it shows the whole attempt, not
+    // just one frame. Fall back to the last screenshot if video is missing.
+    if (result.videoPath && fs.existsSync(result.videoPath)) {
+      form.append('files[0]', new Blob([fs.readFileSync(result.videoPath)], { type: 'video/webm' }), 'attempt.webm');
+    } else if (result.screenshots?.length) {
+      form.append('files[0]', new Blob([result.screenshots[result.screenshots.length - 1]], { type: 'image/png' }), 'screenshot.png');
+    }
+
+    const res = await fetch(webhookUrl, { method: 'POST', body: form });
+    if (!res.ok) {
+      console.error('Discord auto-accept notification failed:', res.status, await res.text());
+    } else {
+      console.log(`✓ Discord auto-accept notification sent for auction ${auction.id}`);
+    }
+  } catch (err) {
+    console.error('Discord auto-accept notification failed:', err.message);
+  }
 }
 
 // Used when we've reached a screen we've never verified (e.g. a details/
