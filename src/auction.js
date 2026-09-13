@@ -9,7 +9,11 @@ import { notifyAuctionFound } from './discord.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, '..', 'auction-state.json');
 
-const BOOKING_REQUEST_URL = 'https://api.rydeu.com/app/vendors/bookingRequest';
+// NOT the same thing as /app/vendors/bookingRequest - that one is the
+// manual-request flow (we set a price, customer decides later, no rush).
+// This is the actual fixed-price, race-to-accept auction board, confirmed
+// as a genuinely separate endpoint (its own path + limit/offset paging).
+const AUCTION_URL = 'https://api.rydeu.com/app/vendors/auction';
 
 function loadState() {
   try {
@@ -68,6 +72,12 @@ function formatPassengers(row) {
   return parts.join(', ');
 }
 
+// The auction endpoint has never actually returned a row yet (board's been
+// empty every time it's been checked), so this shape is inferred from the
+// sibling bookingRequest endpoint's schema rather than confirmed - it's
+// deliberately defensive (lots of ?./??) so a real row's actual shape
+// doesn't just crash this. Log the raw row the first time one shows up and
+// tighten this once we see it.
 function mapRow(row) {
   return {
     id: row.booking?.bookingNumber || row.id,
@@ -77,6 +87,7 @@ function mapRow(row) {
     distanceKm: row.numberOfKms ?? row.totalNumberOfKms ?? null,
     passengers: formatPassengers(row),
     transferType: row.transferType || 'N/A',
+    price: row.price ?? row.offerAmount ?? row.amount ?? null,
   };
 }
 
@@ -97,8 +108,20 @@ export async function checkAuctions() {
     console.log('🎯 Checking Rydeu Auction Board (API)...');
     const token = await getValidToken();
 
-    const res = await axios.get(BOOKING_REQUEST_URL, {
-      params: { q: '', fromTravelDate: '', toTravelDate: '', transferType: '', vehicleType: '', maxDistance: '' },
+    const res = await axios.get(AUCTION_URL, {
+      params: {
+        bookingState: 2,
+        q: '',
+        fromTravelDate: '',
+        toTravelDate: '',
+        transferType: '',
+        vehicleType: '',
+        maxDistance: '',
+        minDistance: '',
+        sort: '["createdAt","DESC"]',
+        limit: 10,
+        offset: 0,
+      },
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -106,6 +129,9 @@ export async function checkAuctions() {
     console.log(`📋 Found ${rows.length} auction(s)`);
 
     for (const row of rows) {
+      // First confirmed row ever - shape is still unverified, so log it
+      // raw for a sanity check until mapRow's field guesses are confirmed.
+      console.log('Raw auction row:', JSON.stringify(row));
       const auction = mapRow(row);
       // Tracked by the human-facing booking number (e.g. "SE219252748"),
       // same identifier the old web-scraped version used and the same one
