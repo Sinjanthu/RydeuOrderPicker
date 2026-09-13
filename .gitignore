@@ -9,6 +9,7 @@ storage.json
 auth.json
 state.json
 auction-state.json
+api-token.json
 
 # Node modules
 node_modules/

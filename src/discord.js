@@ -78,6 +78,30 @@ export async function notifyAuctionFailed(auction, reason) {
   console.log(`✓ Discord failure notification sent for auction ${auction.id}`);
 }
 
+// API-based equivalent of notifyAuctionNeedsManualStep below: same "found a
+// new auction, accept it yourself" purpose, but there's no browser screen to
+// screenshot anymore since this comes straight from the bookingRequest API.
+// Vehicle type/accept still isn't automatable - that endpoint hasn't been
+// found yet - so this stays a heads-up, not an action.
+export async function notifyAuctionFound(auction, isNight) {
+  await sendEmbed({
+    title: isNight
+      ? '🌙 Night Auction (23:00–05:00) — Manual Accept Needed'
+      : '🎯 New Auction — Manual Accept Needed',
+    description: `${auction.pickupLocation || '?'} → ${auction.dropLocation || '?'}`,
+    fields: [
+      { name: 'Request ID', value: auction.id || 'N/A', inline: true },
+      { name: 'Transfer Date', value: auction.transferDate || 'N/A', inline: true },
+      { name: 'Distance', value: auction.distanceKm ? `${auction.distanceKm} km` : 'N/A', inline: true },
+      { name: 'Passengers/Baggage', value: auction.passengers || 'N/A', inline: false },
+      { name: 'Transfer Type', value: auction.transferType || 'N/A', inline: true },
+      { name: 'Note', value: 'Vehicle selection + accept still has to be done manually in the app - that part of the API hasn\'t been mapped yet.', inline: false },
+    ],
+    color: isNight ? 0x8a2be2 : 0xf39c12, // purple for night, amber otherwise
+  });
+  console.log(`✓ Discord notification sent for auction ${auction.id}`);
+}
+
 // Used when we've reached a screen we've never verified (e.g. a details/
 // accept flow requiring a vehicle pick) — rather than guess-click through
 // something that could commit to a real booking, send a screenshot so a

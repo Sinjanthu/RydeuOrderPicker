@@ -9,12 +9,12 @@ on:
   # deployment section for the cron-job.org setup (same fix fleet-scraper uses).
   workflow_dispatch:
 
-# A run typically takes 1-2 minutes, but the cron-job.org timer above can
-# fire as often as every 1 minute - without this, overlapping runs would
-# execute in parallel: both read the same "already notified" cache before
-# either saves its update, risking a duplicate Discord ping for the same
-# order, plus wasted double-scraping. cancel-in-progress: false queues the
-# newer trigger instead of running alongside (or killing) the one in flight.
+# The cron-job.org timer above can fire as often as every 1 minute - without
+# this, overlapping runs would execute in parallel: both read the same
+# "already notified" cache before either saves its update, risking a
+# duplicate Discord ping for the same auction. cancel-in-progress: false
+# queues the newer trigger instead of running alongside (or killing) the one
+# in flight.
 concurrency:
   group: rydeu-scraper
   cancel-in-progress: false
@@ -22,7 +22,10 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # This hits the Rydeu API directly (see src/apiAuth.js, src/auction.js) -
+    # no browser involved - so a run is a couple of HTTP calls and normally
+    # finishes in seconds. Was 10 when this launched a Playwright browser.
+    timeout-minutes: 3
 
     steps:
       - uses: actions/checkout@v4
@@ -36,58 +39,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ubuntu-latest preinstalls Google Chrome and various Microsoft
-      # packages, which register dl.google.com/linux/chrome-stable and
-      # packages.microsoft.com as apt sources. We need neither - Chromium
-      # comes from Playwright itself - and both have independently been seen
-      # breaking apt-get update for everything (a stale "Hash Sum mismatch"
-      # from Google's mirror, a "403 Forbidden / no longer signed" from
-      # Microsoft's), so drop them before installing.
-      - name: Remove unused apt sources (Chrome, Microsoft)
-        run: |
-          sudo grep -rl "dl.google.com/linux/chrome\|packages.microsoft.com" /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
-          echo "Remaining sources (should be empty):"
-          sudo grep -rl "dl.google.com/linux/chrome\|packages.microsoft.com" /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null || echo "(none)"
-
-      # Retry too, as a safety net against other transient mirror issues.
-      - name: Install Playwright browsers
-        run: |
-          for i in 1 2 3; do
-            npx playwright install --with-deps chromium && exit 0
-            echo "Attempt $i failed, retrying in 10s..."
-            sleep 10
-          done
-          exit 1
-
-      - name: Restore cookies
-        id: restore-cookies
-        uses: actions/cache@v4
-        with:
-          path: cookies.json
-          key: rydeu-cookies-${{ github.run_id }}
-          restore-keys: |
-            rydeu-cookies-
-
-      - name: Restore storage
-        id: restore-storage
-        uses: actions/cache@v4
-        with:
-          path: storage.json
-          key: rydeu-storage-${{ github.run_id }}
-          restore-keys: |
-            rydeu-storage-
-
-      - name: Restore state
-        id: restore-state
-        uses: actions/cache@v4
-        with:
-          path: state.json
-          key: rydeu-state-${{ github.run_id }}
-          restore-keys: |
-            rydeu-state-
-
       - name: Restore auction state
-        id: restore-auction-state
         uses: actions/cache@v4
         with:
           path: auction-state.json
@@ -95,43 +47,16 @@ jobs:
           restore-keys: |
             rydeu-auction-state-
 
-      # The cache is only ever populated by a previous successful run. The
-      # first run (or any run after the cache is evicted) falls back to a
-      # one-time snapshot taken from a real `npm run login` and stored as
-      # secrets, since CI has no display to log in interactively itself.
-      - name: Seed session from secrets if cache missed
-        if: steps.restore-cookies.outputs.cache-hit != 'true'
+      # Login is one cheap POST (see src/apiAuth.js) and the resulting JWT
+      # only lasts 30 days with no refresh token, so there's no session to
+      # cache/seed here the way the old Playwright cookies were - just log
+      # in fresh with the account credentials every run.
+      - name: Check auction board
         env:
-          COOKIES_JSON: ${{ secrets.COOKIES_JSON }}
-          STORAGE_JSON: ${{ secrets.STORAGE_JSON }}
-        run: |
-          echo "$COOKIES_JSON" | base64 -d > cookies.json
-          echo "$STORAGE_JSON" | base64 -d > storage.json
-
-      - name: Run scraper + auction check
-        env:
+          RYDEU_EMAIL: ${{ secrets.RYDEU_EMAIL }}
+          RYDEU_PASSWORD: ${{ secrets.RYDEU_PASSWORD }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          HEADLESS: 'true'
-          DEBUG: ${{ secrets.DEBUG || 'false' }}
         run: npm run poll
-
-      - name: Save cookies
-        uses: actions/cache@v4
-        with:
-          path: cookies.json
-          key: rydeu-cookies-${{ github.run_id }}
-
-      - name: Save storage
-        uses: actions/cache@v4
-        with:
-          path: storage.json
-          key: rydeu-storage-${{ github.run_id }}
-
-      - name: Save state
-        uses: actions/cache@v4
-        with:
-          path: state.json
-          key: rydeu-state-${{ github.run_id }}
 
       - name: Save auction state
         uses: actions/cache@v4
@@ -146,8 +71,8 @@ jobs:
           name: scraper-logs
           path: |
             *.log
-            cookies.json
           retention-days: 1
+          if-no-files-found: ignore
 
   notify-on-failure:
     needs: scrape

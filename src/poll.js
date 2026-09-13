@@ -1,11 +1,13 @@
 import { pathToFileURL } from 'url';
-import { scrapeRydeuOrders } from './scraper.js';
 import { checkAuctions } from './auction.js';
 
-// One-shot combined run: check pending requests, then the auction board.
-// Used by CI (npm run poll) and by the local persistent bot (index.js).
+// Orders (scraper.js) are the opposite flow from auctions - we set a price
+// and the customer decides later, no rush - so they're handled manually
+// and don't belong in this fast automated loop. Auctions are a race (the
+// customer's price is fixed, suppliers race to accept it first), which is
+// what this actually needs to run often and fast for. See git history if
+// orders polling needs to come back.
 export async function poll() {
-  await scrapeRydeuOrders();
   await checkAuctions();
 }
 

@@ -11,6 +11,7 @@
     "auction": "node src/auction.js",
     "poll": "node src/poll.js",
     "login": "node src/auth.js",
+    "relogin": "node src/apiAuth.js",
     "test": "echo \"Tests coming soon\""
   },
   "keywords": [
