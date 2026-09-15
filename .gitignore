@@ -12,6 +12,7 @@ auction-state.json
 api-token.json
 recordings/
 auto-accept-state.json
+auto-accept-rules.json
 
 # Node modules
 node_modules/

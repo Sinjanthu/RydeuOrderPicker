@@ -6,6 +6,7 @@ import axios from 'axios';
 import { getValidToken } from './apiAuth.js';
 import { notifyAuctionFound, notifyAutoAcceptAttempt } from './discord.js';
 import { isAutoAcceptEnabled } from './autoAcceptState.js';
+import { auctionMatchesRules, updateRules } from './autoAcceptRules.js';
 
 // Recording is opt-in and local-only (see recordAuctionBoard below) -
 // Playwright is a lazy/dynamic import so a plain `npm run poll` (CI, no
@@ -69,30 +70,34 @@ function formatTransferDate(startDateTimeIso, timezone) {
   return `${datePart} | ${timePart}`;
 }
 
-function formatPassengers(row) {
-  const parts = [`${row.totalAdultSeats ?? 0} adult${row.totalAdultSeats === 1 ? '' : 's'}`];
-  if (row.totalChildSeats) parts.push(`${row.totalChildSeats} child${row.totalChildSeats === 1 ? '' : 'ren'}`);
-  const bags = (row.smallCabinBaggageCount || 0) + (row.largeCheckInBaggageCount || 0);
+function formatPassengers(transfer) {
+  const parts = [`${transfer.totalAdultSeats ?? 0} adult${transfer.totalAdultSeats === 1 ? '' : 's'}`];
+  if (transfer.totalChildSeats) parts.push(`${transfer.totalChildSeats} child${transfer.totalChildSeats === 1 ? '' : 'ren'}`);
+  const bags = (transfer.smallCabinBaggageCount || 0) + (transfer.largeCheckInBaggageCount || 0);
   if (bags) parts.push(`${bags} bag${bags === 1 ? '' : 's'}`);
   return parts.join(', ');
 }
 
-// The auction endpoint has never actually returned a row yet (board's been
-// empty every time it's been checked), so this shape is inferred from the
-// sibling bookingRequest endpoint's schema rather than confirmed - it's
-// deliberately defensive (lots of ?./??) so a real row's actual shape
-// doesn't just crash this. Log the raw row the first time one shows up and
-// tighten this once we see it.
+// Confirmed shape (SE482530291, 2026-09-15) - NOT flat like bookingRequest's
+// rows. The actual trip lives at row.booking.transfers[0]; price/currency
+// are the only fields at the row's own top level. Earlier guesses (assuming
+// a flat shape copied from bookingRequest's sibling schema) got price right
+// by coincidence but silently produced "?" for every location field - see
+// git history for the raw JSON this was corrected against.
 function mapRow(row) {
+  const transfer = row.booking?.transfers?.[0] || {};
   return {
     id: row.booking?.bookingNumber || row.id,
-    transferDate: formatTransferDate(row.startDateTime, row.timezone),
-    pickupLocation: row.pickupLocation?.formattedAddress || '?',
-    dropLocation: row.dropLocation?.formattedAddress || '?',
-    distanceKm: row.numberOfKms ?? row.totalNumberOfKms ?? null,
-    passengers: formatPassengers(row),
-    transferType: row.transferType || 'N/A',
-    price: row.price ?? row.offerAmount ?? row.amount ?? null,
+    transferDate: formatTransferDate(transfer.startDateTime, transfer.timezone),
+    pickupLocation: transfer.pickupLocation?.formattedAddress || '?',
+    dropLocation: transfer.dropLocation?.formattedAddress || '?',
+    distanceKm: transfer.numberOfKms ?? transfer.totalNumberOfKms ?? null,
+    passengers: formatPassengers(transfer),
+    transferType: transfer.transferType || 'N/A',
+    price: typeof row.price === 'number' ? row.price : null,
+    currencySymbol: row.currency?.symbol || row.currency?.code || '',
+    startDateTime: transfer.startDateTime,
+    timezone: transfer.timezone,
   };
 }
 
@@ -266,20 +271,28 @@ export async function checkAuctions() {
 
       console.log(`🆕 New auction: ${auction.id} — ${auction.pickupLocation} → ${auction.dropLocation}`);
 
-      await notifyAuctionFound(auction, isNightPickup(row.startDateTime, row.timezone));
+      await notifyAuctionFound(auction, isNightPickup(auction.startDateTime, auction.timezone));
       foundNew = true;
 
       // Best-effort auto-accept (see attemptAutoAccept above for what "best
-      // effort" means here - unverified past View Details). No rules
-      // engine yet ("we will implement rules later"), so every new auction
-      // is attempted when this is on - it isn't filtering by price/
-      // distance/etc yet. Toggleable at runtime via the Discord
-      // "auto accept rydeu" command (see src/autoAcceptState.js) rather
-      // than only the static .env value, and local-only for the same
-      // reason as RECORD_ON_AUCTION - never wired into the CI workflow.
+      // effort" means here - unverified past View Details). Gated by both
+      // the runtime on/off toggle (Discord "/auto-accept-rydeu", see
+      // autoAcceptState.js) and the rules engine (Discord "/rydeu-rules",
+      // see autoAcceptRules.js - blackout window, then Arlanda-pickup price
+      // threshold). Local-only for the same reason as RECORD_ON_AUCTION -
+      // never wired into the CI workflow.
       if (isAutoAcceptEnabled()) {
-        const result = await attemptAutoAccept(auction);
-        await notifyAutoAcceptAttempt(auction, result);
+        const { eligible, reasons, isFirstAuctionBypass } = auctionMatchesRules(auction);
+        if (isFirstAuctionBypass) {
+          console.log(`🔬 First auction ever seen by the rules engine - attempting regardless of rules, to study the flow: ${auction.id}`);
+          updateRules({ firstAuctionStudied: true });
+        }
+        if (eligible) {
+          const result = await attemptAutoAccept(auction);
+          await notifyAutoAcceptAttempt(auction, result);
+        } else {
+          console.log(`⏭️  Skipping auto-accept for ${auction.id}: ${reasons.join('; ')}`);
+        }
       }
 
       // Mark as seen either way so this doesn't re-notify every run - the

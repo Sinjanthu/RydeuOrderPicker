@@ -96,7 +96,7 @@ export async function notifyAuctionFound(auction, isNight) {
       { name: 'Distance', value: auction.distanceKm ? `${auction.distanceKm} km` : 'N/A', inline: true },
       { name: 'Passengers/Baggage', value: auction.passengers || 'N/A', inline: false },
       { name: 'Transfer Type', value: auction.transferType || 'N/A', inline: true },
-      ...(auction.price ? [{ name: 'Price', value: `${auction.price}`, inline: true }] : []),
+      ...(auction.price != null ? [{ name: 'Price', value: `${auction.currencySymbol || ''}${auction.price}`, inline: true }] : []),
       { name: 'Note', value: 'Vehicle selection + accept still has to be done manually in the app - that part of the API hasn\'t been mapped yet.', inline: false },
     ],
     color: isNight ? 0x8a2be2 : 0xf39c12, // purple for night, amber otherwise
