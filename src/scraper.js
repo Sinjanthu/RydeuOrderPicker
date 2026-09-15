@@ -49,8 +49,9 @@ export async function scrapeRydeuOrders() {
     // Navigate to Rydeu supplier dashboard
     console.log('🌐 Navigating to Rydeu dashboard...');
     await page.goto('https://supplier.rydeu.com/dashboard/account', {
-      waitUntil: 'networkidle',
+      waitUntil: 'domcontentloaded',
     });
+    await page.waitForTimeout(3000); // let the SPA's own auth redirect fire, if any
 
     // This is a client-rendered SPA: an unauthenticated session gets
     // redirected client-side back to /login rather than server-rejected.
@@ -66,7 +67,7 @@ export async function scrapeRydeuOrders() {
 
     // Navigate to orders/requests page
     await page.goto('https://supplier.rydeu.com/dashboard/requests', {
-      waitUntil: 'networkidle',
+      waitUntil: 'domcontentloaded',
     });
 
     // Wait for the requests table to load

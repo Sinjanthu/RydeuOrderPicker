@@ -117,7 +117,12 @@ async function recordAuctionBoard() {
     const page = await context.newPage();
     await restoreSession(context);
 
-    await page.goto('https://supplier.rydeu.com/dashboard/auction', { waitUntil: 'networkidle' });
+    // 'networkidle' hangs to its full timeout here - this SPA apparently
+    // keeps some background polling/websocket alive, so network activity
+    // never actually goes quiet. 'domcontentloaded' + a short settle wait
+    // is what actually works (confirmed live: full dashboard content in
+    // ~2s vs. a 30s timeout stuck on the loading screen).
+    await page.goto('https://supplier.rydeu.com/dashboard/auction', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(30_000);
 
     await context.close(); // finalizes the video file
@@ -162,7 +167,11 @@ async function attemptAutoAccept(auction) {
 
   try {
     await restoreSession(context);
-    await page.goto('https://supplier.rydeu.com/dashboard/auction', { waitUntil: 'networkidle' });
+    // See recordAuctionBoard above - 'networkidle' hangs to its full
+    // timeout on this SPA, 'domcontentloaded' + a settle wait is what
+    // actually works.
+    await page.goto('https://supplier.rydeu.com/dashboard/auction', { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(3_000);
     await page.locator('button:has-text("Got it")').click({ timeout: 2000 }).catch(() => {});
 
     const row = page.locator('table#table tbody tr').filter({ hasText: auction.id });
