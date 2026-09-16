@@ -179,9 +179,30 @@ async function attemptAutoAccept(auction) {
     await page.waitForTimeout(3_000);
     await page.locator('button:has-text("Got it")').click({ timeout: 2000 }).catch(() => {});
 
-    const row = page.locator('table#table tbody tr').filter({ hasText: auction.id });
-    if ((await row.count().catch(() => 0)) === 0) {
-      throw new Error('Auction row not found on web dashboard (may already be taken)');
+    // NOT matched by auction.id (the "SE..." booking number) - confirmed
+    // via a real recording that both rows were genuinely present on the
+    // board the whole time, text-matching just never found them. The
+    // table's leftmost "Booking Id" column is hidden behind the sidebar in
+    // our viewport and/or shows a different id format entirely, either
+    // way not something worth matching on. Pickup/drop location text is
+    // confirmed visible and correct - but matched by COLUMN position
+    // (table header order: Booking Id, Transfer Date, Pickup Location,
+    // Drop Location, ...), not whole-row text: a round trip puts the same
+    // two places in both rows with pickup/drop swapped, so whole-row text
+    // matching can't tell which row is which and risks clicking the wrong
+    // one's Accept.
+    const pickupFragment = (auction.pickupLocation || '').split(',')[0].trim();
+    const dropFragment = (auction.dropLocation || '').split(',')[0].trim();
+    const row = page.locator('table#table tbody tr')
+      .filter({ has: page.locator('td:nth-child(3)', { hasText: pickupFragment }) })
+      .filter({ has: page.locator('td:nth-child(4)', { hasText: dropFragment }) });
+
+    const rowCount = await row.count().catch(() => 0);
+    if (rowCount !== 1) {
+      // 0 = not found (may already be taken, or the column-position guess
+      // above is wrong for this layout); >1 = can't tell which is which -
+      // either way, fail rather than guess and risk the wrong booking.
+      throw new Error(`Auction row not uniquely found on web dashboard (matched ${rowCount}) - looked for pickup "${pickupFragment}", drop "${dropFragment}"`);
     }
 
     // Verified step - same click checkAuctions' predecessor always used.
